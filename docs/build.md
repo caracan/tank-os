@@ -89,6 +89,13 @@ Create a bootc-image-builder config in the repo root. This is convenient for
 local VM tests. Do not put private keys or long-lived secrets here.
 
 ```bash
+cp examples/bootc-config.toml config.toml
+$EDITOR config.toml
+```
+
+Or create it inline:
+
+```bash
 cat > config.toml <<'EOF'
 [[customizations.user]]
 name = "openclaw"
@@ -167,6 +174,59 @@ On boot, OpenClaw state lives at:
 ```
 
 When logged in as `openclaw`, that is `~/.openclaw`.
+
+## Launch on Linux (QEMU)
+
+Build an x86_64 QCOW2 first:
+
+```bash
+make build-qcow2 ARCH=amd64
+```
+
+Use the provided launch script for portable QEMU invocation with automatic KVM
+detection and TCG fallback:
+
+```bash
+chmod +x examples/boot-tank-os-qemu.sh
+./examples/boot-tank-os-qemu.sh out-tank-os
+```
+
+The script:
+
+- Detects KVM availability and falls back to TCG if unavailable
+- Auto-locates OVMF firmware files (`/usr/share/OVMF/`, `/usr/share/ovmf/`, etc.)
+- Prepares OVMF variables for write access
+- Forwards SSH port to localhost:2222
+
+You can override the defaults with `QEMU_BIN`, `OVMF_CODE`, `OVMF_VARS`,
+`SSH_PORT`, `QEMU_MEM`, and `QEMU_SMP`.
+
+**Manual QEMU invocation** (if you prefer):
+
+```bash
+# Check for /dev/kvm; if unavailable, use accel=tcg
+ACCEL="kvm"
+[[ -e /dev/kvm ]] || ACCEL="tcg"
+
+qemu-system-x86_64 \
+  -machine q35,accel="$ACCEL" \
+  -cpu max \
+  -smp 2 \
+  -m 4096 \
+  -drive file=out-tank-os/qcow2/disk.qcow2,format=qcow2,if=virtio \
+  -drive if=pflash,format=raw,readonly=on,file=/usr/share/OVMF/OVMF_CODE_4M.fd \
+  -drive if=pflash,format=raw,file=out-tank-os/qcow2/OVMF_VARS_4M.fd \
+  -device virtio-net-pci,netdev=net0 \
+  -netdev user,id=net0,hostfwd=tcp::2222-:22 \
+  -nographic
+```
+
+**Note**: OVMF paths vary by distribution. Common locations:
+- `/usr/share/OVMF/OVMF_CODE_4M.fd` or `/usr/share/OVMF/OVMF_CODE.fd` (Red Hat, Fedora, openSUSE, Debian, Ubuntu)
+- `/usr/share/ovmf/OVMF_CODE_4M.fd` or `/usr/share/ovmf/OVMF_CODE.fd` (Debian, Ubuntu)
+- `/usr/share/edk2-ovmf/OVMF_CODE.fd` (Arch)
+
+The `_4M` variant is preferred for modern systems; fall back to standard paths if unavailable.
 
 ## Upgrade A Running VM
 
